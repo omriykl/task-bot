@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const { extractTask } = require("./llm");
 const { createTask } = require("./notion");
+const { transcribeVoice } = require("./transcribe");
 
 const app = express();
 app.use(express.json());
@@ -20,24 +21,48 @@ app.post("/webhook", async (req, res) => {
     const { message } = req.body;
 
     // Ignore non-message updates
-    if (!message || !message.text) {
+    if (!message) {
       return res.sendStatus(200);
     }
 
     const chatId = message.chat.id;
-    const text = message.text;
 
     // Handle /start command
-    if (text === "/start") {
+    if (message.text === "/start") {
       await sendTelegramMessage(
         chatId,
-        "Hey Omri! Send me any task and I'll add it to your Notion.\n\nExamples:\n- Review PR by Friday\n- להחליף בריטה\n- urgent: fix prod bug in auth service"
+        "Hey Omri! Send me any task and I'll add it to your Notion.\n\n" +
+        "You can send:\n" +
+        "• Text messages\n" +
+        "• Voice messages 🎤\n\n" +
+        "Examples:\n" +
+        "- Review PR by Friday\n" +
+        "- להחליף בריטה\n" +
+        "- urgent: fix prod bug in auth service"
       );
       return res.sendStatus(200);
     }
 
-    // Extract task using Claude
-    console.log("Received message:", text);
+    let text;
+
+    // Handle voice messages
+    if (message.voice) {
+      console.log("Received voice message, transcribing...");
+      await sendTelegramMessage(chatId, "🎤 Transcribing...");
+      text = await transcribeVoice(message.voice.file_id);
+      console.log("Transcribed:", text);
+    }
+    // Handle text messages
+    else if (message.text) {
+      text = message.text;
+    }
+    // Ignore other message types
+    else {
+      return res.sendStatus(200);
+    }
+
+    // Extract task using LLM
+    console.log("Processing message:", text);
     const extracted = await extractTask(text);
     console.log("Extracted:", extracted);
 
