@@ -1,0 +1,18 @@
+{
+  "name": "task-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot that adds tasks to Notion using LLM extraction",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "groq-sdk": "^0.37.0"
+  }
+}
