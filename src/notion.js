@@ -1,7 +1,7 @@
 const NOTION_API_TOKEN = process.env.NOTION_API_TOKEN;
 const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID;
 
-async function createTask({ title, summary, priority, due_date }) {
+async function createTask({ title, summary, priority, due_date, scope }) {
   const properties = {
     "Task name": {
       title: [{ text: { content: title } }],
@@ -30,6 +30,13 @@ async function createTask({ title, summary, priority, due_date }) {
   if (due_date) {
     properties.Due = {
       date: { start: due_date },
+    };
+  }
+
+  // Add scope if provided
+  if (scope) {
+    properties.Scope = {
+      select: { name: scope },
     };
   }
 

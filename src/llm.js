@@ -30,12 +30,17 @@ Rules:
    - "tomorrow", "Friday", "next week", "end of month"
    - null if no date mentioned
 
+5. **scope**: "Work" | "Personal" | null
+   - Work: colleagues, meetings, projects, clients, deadlines, professional tools (Slack, Jira, etc.)
+   - Personal: family, friends, errands, home, hobbies
+   - null if context is unclear or ambiguous
+
 Respond with valid JSON only. No explanation, no markdown code blocks.
 
 Example input: "Refresh button - @sharon.stone to follow up with @rozi and @omri about the scope. Is it only SP? Generic implementation?"
 
 Example output:
-{"title":"Refresh button - clarify scope","summary":"@sharon.stone to follow up with @rozi and me. Questions: SP only or generic implementation?","priority":null,"due_date":null}`;
+{"title":"Refresh button - clarify scope","summary":"@sharon.stone to follow up with @rozi and me. Questions: SP only or generic implementation?","priority":null,"due_date":null,"scope":"Work"}`;
 
 async function extractTask(message) {
   const today = new Date().toISOString().split("T")[0];
@@ -74,6 +79,7 @@ ${message}`,
       summary: null,
       priority: null,
       due_date: null,
+      scope: null,
     };
   }
 }
