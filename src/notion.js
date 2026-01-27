@@ -9,6 +9,9 @@ async function createTask({ title, summary, priority, due_date, scope }) {
     Status: {
       status: { name: "Not started" },
     },
+    Assignee: {
+      people: [{ id: "8a56618a-e13a-4642-9604-489f0a085baa" }],
+    },
   };
 
   // Add summary if provided
