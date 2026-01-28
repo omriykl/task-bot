@@ -72,6 +72,12 @@ app.post("/webhook", async (req, res) => {
 
     // Send confirmation
     let confirmation = `✓ Task added: ${extracted.title}`;
+    if (extracted.scope) {
+      confirmation += ` [${extracted.scope}]`;
+    }
+    if (extracted.summary) {
+      confirmation += `\n${extracted.summary}`;
+    }
     if (extracted.due_date) {
       confirmation += `\nDue: ${extracted.due_date}`;
     }
