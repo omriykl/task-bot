@@ -1,6 +1,81 @@
 const NOTION_API_TOKEN = process.env.NOTION_API_TOKEN;
 const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID;
 
+async function queryTasks({ startDate, endDate, scope, includeCompleted = false }) {
+  const filters = [];
+
+  // Date range filter
+  if (startDate) {
+    filters.push({
+      property: "Due",
+      date: { on_or_after: startDate },
+    });
+  }
+  if (endDate) {
+    filters.push({
+      property: "Due",
+      date: { on_or_before: endDate },
+    });
+  }
+
+  // Scope filter (Work/Personal)
+  if (scope) {
+    filters.push({
+      property: "Scope",
+      select: { equals: scope },
+    });
+  }
+
+  // Exclude completed tasks unless requested
+  if (!includeCompleted) {
+    filters.push({
+      property: "Status",
+      status: { does_not_equal: "Done" },
+    });
+  }
+
+  const body = {
+    sorts: [{ property: "Due", direction: "ascending" }],
+  };
+
+  if (filters.length > 0) {
+    body.filter = filters.length === 1 ? filters[0] : { and: filters };
+  }
+
+  const response = await fetch(
+    `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${NOTION_API_TOKEN}`,
+        "Content-Type": "application/json",
+        "Notion-Version": "2022-06-28",
+      },
+      body: JSON.stringify(body),
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to query Notion tasks");
+  }
+
+  // Parse results into simplified task objects
+  return data.results.map((page) => {
+    const props = page.properties;
+    return {
+      id: page.id,
+      title: props["Task name"]?.title?.[0]?.text?.content || "Untitled",
+      summary: props.Summary?.rich_text?.[0]?.text?.content || null,
+      due_date: props.Due?.date?.start || null,
+      scope: props.Scope?.select?.name || null,
+      status: props.Status?.status?.name || null,
+      url: page.url,
+    };
+  });
+}
+
 async function createTask({ title, summary, priority, due_date, scope }) {
   const properties = {
     "Task name": {
@@ -68,4 +143,4 @@ async function createTask({ title, summary, priority, due_date, scope }) {
   };
 }
 
-module.exports = { createTask };
+module.exports = { createTask, queryTasks };
