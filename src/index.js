@@ -3,7 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const cron = require("node-cron");
 const { extractTask } = require("./llm");
-const { createTask, queryTasks, updateTaskStatus } = require("./notion");
+const { createTask, queryTasks, updateTaskStatus, updateTaskScope } = require("./notion");
 const { transcribeVoice } = require("./transcribe");
 const { formatDailyReminder, formatTasksForPeriod, buildInlineKeyboardForTasks } = require("./messages");
 
@@ -128,13 +128,39 @@ app.post("/webhook", async (req, res) => {
       const [action, pageId] = data.split(":");
 
       const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+      if (!pageId || !uuidPattern.test(pageId)) {
+        await answerCallbackQuery(callbackId, "Invalid action");
+        return res.sendStatus(200);
+      }
+
+      // Handle scope selection
+      const scopeMap = {
+        scope_work: "Work",
+        scope_personal: "Personal",
+      };
+
+      if (scopeMap[action]) {
+        const scope = scopeMap[action];
+        try {
+          await updateTaskScope(pageId, scope);
+          await answerCallbackQuery(callbackId, `Scope set to ${scope}`);
+          await editMessageReplyMarkup(chatId, messageId, { inline_keyboard: [] });
+        } catch (error) {
+          console.error("Error updating task scope:", error);
+          await answerCallbackQuery(callbackId, "Failed to update scope");
+        }
+        return res.sendStatus(200);
+      }
+
+      // Handle status updates
       const statusMap = {
         done: "Done",
         ip: "In progress",
       };
 
       const newStatus = statusMap[action];
-      if (!newStatus || !pageId || !uuidPattern.test(pageId)) {
+      if (!newStatus) {
         await answerCallbackQuery(callbackId, "Invalid action");
         return res.sendStatus(200);
       }
@@ -142,7 +168,6 @@ app.post("/webhook", async (req, res) => {
       try {
         await updateTaskStatus(pageId, newStatus);
         await answerCallbackQuery(callbackId, `Task marked as ${newStatus}`);
-        // Remove inline keyboard from the message
         await editMessageReplyMarkup(chatId, messageId, { inline_keyboard: [] });
       } catch (error) {
         console.error("Error updating task status:", error);
@@ -245,7 +270,18 @@ app.post("/webhook", async (req, res) => {
       confirmation += `\nPriority: ${extracted.priority}`;
     }
 
-    await sendTelegramMessage(chatId, confirmation);
+    // Show scope selection buttons when LLM couldn't determine scope
+    let replyMarkup;
+    if (!extracted.scope) {
+      replyMarkup = {
+        inline_keyboard: [[
+          { text: "💼 Work", callback_data: `scope_work:${result.id}` },
+          { text: "🏠 Personal", callback_data: `scope_personal:${result.id}` },
+        ]],
+      };
+    }
+
+    await sendTelegramMessage(chatId, confirmation, replyMarkup);
 
     res.sendStatus(200);
   } catch (error) {

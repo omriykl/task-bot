@@ -170,4 +170,31 @@ async function updateTaskStatus(pageId, status) {
   return data;
 }
 
-module.exports = { createTask, queryTasks, updateTaskStatus };
+async function updateTaskScope(pageId, scope) {
+  const response = await fetch(
+    `https://api.notion.com/v1/pages/${pageId}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${NOTION_API_TOKEN}`,
+        "Content-Type": "application/json",
+        "Notion-Version": "2022-06-28",
+      },
+      body: JSON.stringify({
+        properties: {
+          Scope: { select: { name: scope } },
+        },
+      }),
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to update task scope");
+  }
+
+  return data;
+}
+
+module.exports = { createTask, queryTasks, updateTaskStatus, updateTaskScope };
