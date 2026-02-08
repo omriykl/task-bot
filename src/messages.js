@@ -16,29 +16,48 @@ function formatTaskList(tasks, header) {
 }
 
 function formatDailyReminder(workTasks, personalTasks, isEvening = false) {
+  const today = new Date().toISOString().split("T")[0];
   const timeLabel = isEvening ? "Still pending" : "Tasks";
+
+  function splitOverdue(tasks) {
+    const overdue = tasks.filter((t) => t.due_date && t.due_date < today);
+    const current = tasks.filter((t) => !t.due_date || t.due_date >= today);
+    return { overdue, current };
+  }
+
+  function formatTaskLine(t, showDate = false) {
+    const priority = t.summary?.includes("[HIGH]") ? "🔴 " : "";
+    const date = showDate && t.due_date ? ` [${t.due_date}]` : "";
+    return `  • ${priority}${t.title}${date}`;
+  }
+
+  function formatSection(emoji, label, tasks) {
+    const { overdue, current } = splitOverdue(tasks);
+    let section = `${emoji} ${label} - ${timeLabel}:\n`;
+
+    if (overdue.length > 0) {
+      section += `  ⚠️ Overdue:\n`;
+      section += overdue.map((t) => formatTaskLine(t, true)).join("\n");
+      if (current.length > 0) {
+        section += `\n  Today:\n`;
+        section += current.map((t) => formatTaskLine(t)).join("\n");
+      }
+    } else {
+      section += current.map((t) => formatTaskLine(t)).join("\n");
+    }
+
+    return section;
+  }
 
   let message = "";
 
   if (workTasks.length > 0) {
-    message += `💼 Work - ${timeLabel}:\n`;
-    message += workTasks
-      .map((t) => {
-        const priority = t.summary?.includes("[HIGH]") ? "🔴 " : "";
-        return `  • ${priority}${t.title}`;
-      })
-      .join("\n");
+    message += formatSection("💼", "Work", workTasks);
     message += "\n\n";
   }
 
   if (personalTasks.length > 0) {
-    message += `🏠 Personal - ${timeLabel}:\n`;
-    message += personalTasks
-      .map((t) => {
-        const priority = t.summary?.includes("[HIGH]") ? "🔴 " : "";
-        return `  • ${priority}${t.title}`;
-      })
-      .join("\n");
+    message += formatSection("🏠", "Personal", personalTasks);
   }
 
   if (!message) {
@@ -83,4 +102,25 @@ function formatTasksForPeriod(workTasks, personalTasks, header) {
   return message.trim();
 }
 
-module.exports = { formatTaskList, formatDailyReminder, formatTasksForPeriod };
+function buildInlineKeyboardForTasks(tasks) {
+  const rows = [];
+
+  for (const task of tasks) {
+    if (task.status === "Done") continue;
+
+    const shortTitle = task.title.length > 20 ? task.title.slice(0, 18) + "…" : task.title;
+    const buttons = [];
+
+    if (task.status === "Not started") {
+      buttons.push({ text: `▶️ ${shortTitle}`, callback_data: `ip:${task.id}` });
+    }
+
+    buttons.push({ text: `✅ ${shortTitle}`, callback_data: `done:${task.id}` });
+
+    rows.push(buttons);
+  }
+
+  return rows.length > 0 ? rows : null;
+}
+
+module.exports = { formatTaskList, formatDailyReminder, formatTasksForPeriod, buildInlineKeyboardForTasks };

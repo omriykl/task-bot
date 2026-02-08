@@ -3,9 +3,9 @@ require("dotenv").config();
 const express = require("express");
 const cron = require("node-cron");
 const { extractTask } = require("./llm");
-const { createTask, queryTasks } = require("./notion");
+const { createTask, queryTasks, updateTaskStatus } = require("./notion");
 const { transcribeVoice } = require("./transcribe");
-const { formatDailyReminder, formatTasksForPeriod } = require("./messages");
+const { formatDailyReminder, formatTasksForPeriod, buildInlineKeyboardForTasks } = require("./messages");
 
 const app = express();
 app.use(express.json());
@@ -48,14 +48,109 @@ async function getTasksForPeriod(period) {
 
   const workTasks = await queryTasks({ startDate, endDate, scope: "Work" });
   const personalTasks = await queryTasks({ startDate, endDate, scope: "Personal" });
+  const allTasks = [...workTasks, ...personalTasks];
 
-  return formatTasksForPeriod(workTasks, personalTasks, header);
+  const text = formatTasksForPeriod(workTasks, personalTasks, header);
+  const keyboard = buildInlineKeyboardForTasks(allTasks);
+
+  return { text, keyboard };
+}
+
+// Telegram API helpers
+async function sendTelegramMessage(chatId, text, replyMarkup) {
+  const body = {
+    chat_id: chatId,
+    text: text,
+  };
+
+  if (replyMarkup) {
+    body.reply_markup = replyMarkup;
+  }
+
+  const response = await fetch(
+    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.description || "Failed to send Telegram message");
+  }
+
+  return data;
+}
+
+async function answerCallbackQuery(callbackQueryId, text) {
+  await fetch(
+    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        callback_query_id: callbackQueryId,
+        text: text,
+      }),
+    }
+  );
+}
+
+async function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
+  await fetch(
+    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageReplyMarkup`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        reply_markup: replyMarkup,
+      }),
+    }
+  );
 }
 
 // Telegram webhook
 app.post("/webhook", async (req, res) => {
   try {
-    const { message } = req.body;
+    // Handle callback queries (inline button presses)
+    const { callback_query, message } = req.body;
+
+    if (callback_query) {
+      const { id: callbackId, data, message: cbMessage } = callback_query;
+      const chatId = cbMessage.chat.id;
+      const messageId = cbMessage.message_id;
+
+      const [action, pageId] = data.split(":");
+
+      const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const statusMap = {
+        done: "Done",
+        ip: "In progress",
+      };
+
+      const newStatus = statusMap[action];
+      if (!newStatus || !pageId || !uuidPattern.test(pageId)) {
+        await answerCallbackQuery(callbackId, "Invalid action");
+        return res.sendStatus(200);
+      }
+
+      try {
+        await updateTaskStatus(pageId, newStatus);
+        await answerCallbackQuery(callbackId, `Task marked as ${newStatus}`);
+        // Remove inline keyboard from the message
+        await editMessageReplyMarkup(chatId, messageId, { inline_keyboard: [] });
+      } catch (error) {
+        console.error("Error updating task status:", error);
+        await answerCallbackQuery(callbackId, "Failed to update task");
+      }
+
+      return res.sendStatus(200);
+    }
 
     // Ignore non-message updates
     if (!message) {
@@ -88,20 +183,23 @@ app.post("/webhook", async (req, res) => {
     const lowerText = message.text?.toLowerCase().trim();
 
     if (lowerText === "today") {
-      const tasksMessage = await getTasksForPeriod("today");
-      await sendTelegramMessage(chatId, tasksMessage);
+      const { text, keyboard } = await getTasksForPeriod("today");
+      const replyMarkup = keyboard ? { inline_keyboard: keyboard } : undefined;
+      await sendTelegramMessage(chatId, text, replyMarkup);
       return res.sendStatus(200);
     }
 
     if (lowerText === "tomorrow") {
-      const tasksMessage = await getTasksForPeriod("tomorrow");
-      await sendTelegramMessage(chatId, tasksMessage);
+      const { text, keyboard } = await getTasksForPeriod("tomorrow");
+      const replyMarkup = keyboard ? { inline_keyboard: keyboard } : undefined;
+      await sendTelegramMessage(chatId, text, replyMarkup);
       return res.sendStatus(200);
     }
 
     if (lowerText === "next week" || lowerText === "nextweek") {
-      const tasksMessage = await getTasksForPeriod("next_week");
-      await sendTelegramMessage(chatId, tasksMessage);
+      const { text, keyboard } = await getTasksForPeriod("next_week");
+      const replyMarkup = keyboard ? { inline_keyboard: keyboard } : undefined;
+      await sendTelegramMessage(chatId, text, replyMarkup);
       return res.sendStatus(200);
     }
 
@@ -165,28 +263,9 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-async function sendTelegramMessage(chatId, text) {
-  const response = await fetch(
-    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: text,
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.description || "Failed to send Telegram message");
-  }
-}
-
 // Scheduled daily messages
 if (TELEGRAM_CHAT_ID) {
-  // 8 AM daily - Today's tasks
+  // 8 AM daily - Today's tasks (includes overdue)
   cron.schedule(
     "0 8 * * *",
     async () => {
@@ -194,18 +273,20 @@ if (TELEGRAM_CHAT_ID) {
         const today = new Date().toISOString().split("T")[0];
 
         const workTasks = await queryTasks({
-          startDate: today,
           endDate: today,
           scope: "Work",
         });
         const personalTasks = await queryTasks({
-          startDate: today,
           endDate: today,
           scope: "Personal",
         });
 
+        const allTasks = [...workTasks, ...personalTasks];
         const message = formatDailyReminder(workTasks, personalTasks, false);
-        await sendTelegramMessage(TELEGRAM_CHAT_ID, `☀️ Good morning!\n\n${message}`);
+        const keyboard = buildInlineKeyboardForTasks(allTasks);
+        const replyMarkup = keyboard ? { inline_keyboard: keyboard } : undefined;
+
+        await sendTelegramMessage(TELEGRAM_CHAT_ID, `☀️ Good morning!\n\n${message}`, replyMarkup);
         console.log("Sent 8 AM daily reminder");
       } catch (error) {
         console.error("Error sending 8 AM reminder:", error);
@@ -214,7 +295,7 @@ if (TELEGRAM_CHAT_ID) {
     { timezone: "Asia/Jerusalem" }
   );
 
-  // 6 PM daily - Incomplete tasks
+  // 6 PM daily - Incomplete tasks (includes overdue)
   cron.schedule(
     "0 18 * * *",
     async () => {
@@ -222,20 +303,22 @@ if (TELEGRAM_CHAT_ID) {
         const today = new Date().toISOString().split("T")[0];
 
         const workTasks = await queryTasks({
-          startDate: today,
           endDate: today,
           scope: "Work",
           includeCompleted: false,
         });
         const personalTasks = await queryTasks({
-          startDate: today,
           endDate: today,
           scope: "Personal",
           includeCompleted: false,
         });
 
+        const allTasks = [...workTasks, ...personalTasks];
         const message = formatDailyReminder(workTasks, personalTasks, true);
-        await sendTelegramMessage(TELEGRAM_CHAT_ID, `🌆 Evening check-in:\n\n${message}`);
+        const keyboard = buildInlineKeyboardForTasks(allTasks);
+        const replyMarkup = keyboard ? { inline_keyboard: keyboard } : undefined;
+
+        await sendTelegramMessage(TELEGRAM_CHAT_ID, `🌆 Evening check-in:\n\n${message}`, replyMarkup);
         console.log("Sent 6 PM daily reminder");
       } catch (error) {
         console.error("Error sending 6 PM reminder:", error);
