@@ -188,17 +188,22 @@ app.post("/webhook", async (req, res) => {
     if (message.text === "/start") {
       await sendTelegramMessage(
         chatId,
-        "Hey Omri! Send me any task and I'll add it to your Notion.\n\n" +
+        "Hey there! Send me any task and I'll add it to your Notion.\n\n" +
         "You can send:\n" +
         "• Text messages\n" +
-        "• Voice messages 🎤\n\n" +
+        "• Voice messages\n\n" +
         "Query commands:\n" +
         "• today - see today's tasks\n" +
         "• tomorrow - see tomorrow's tasks\n" +
         "• next week - see tasks for next 7 days\n\n" +
+        "I'll automatically extract:\n" +
+        "• Title, summary, priority\n" +
+        "• Due date (supports relative dates like \"by Friday\")\n" +
+        "• Scope (Work / Personal)\n\n" +
+        "You can also update tasks directly from the bot using inline buttons.\n\n" +
         "Examples:\n" +
         "- Review PR by Friday\n" +
-        "- להחליף בריטה\n" +
+        "- Buy groceries tomorrow\n" +
         "- urgent: fix prod bug in auth service"
       );
       return res.sendStatus(200);
