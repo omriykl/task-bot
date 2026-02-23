@@ -77,6 +77,7 @@ Reminders include inline action buttons for quick updates.
    - `TELEGRAM_CHAT_ID` — Chat ID for scheduled reminders
    - `NOTION_API_TOKEN` — Notion integration token
    - `NOTION_DATABASE_ID` — Target Notion database ID
+   - `CRON_SECRET` — Random string to authenticate cron endpoints
 
 2. Install dependencies:
    ```bash
@@ -94,16 +95,25 @@ Reminders include inline action buttons for quick updates.
 - **LLM:** Groq (llama-3.3-70b-versatile)
 - **Transcription:** Groq Whisper (whisper-large-v3-turbo)
 - **Task storage:** Notion API
-- **Scheduling:** node-cron (Asia/Jerusalem timezone)
+- **Hosting:** Vercel (serverless)
+- **Scheduling:** Vercel Cron Jobs (UTC)
 
 ## Deployment
 
-Deployed to Railway using the CLI:
+Deployed to Vercel:
 
 ```bash
-npm install -g @railway/cli
-railway login
-railway up
+npm install -g vercel
+vercel login
+vercel --prod
 ```
 
-Make sure environment variables are configured in the Railway dashboard.
+After deploying, set the Telegram webhook to your Vercel URL:
+
+```bash
+curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://<your-project>.vercel.app/webhook"}'
+```
+
+Make sure environment variables (including `CRON_SECRET`) are configured in the Vercel dashboard.

@@ -1,17 +1,12 @@
-require("dotenv").config();
-
 const express = require("express");
-const cron = require("node-cron");
 const { extractTask } = require("./llm");
 const { createTask, queryTasks, updateTaskStatus, updateTaskScope } = require("./notion");
 const { transcribeVoice } = require("./transcribe");
-const { formatDailyReminder, formatTasksForPeriod, buildInlineKeyboardForTasks } = require("./messages");
+const { formatTasksForPeriod, buildInlineKeyboardForTasks } = require("./messages");
+const { sendTelegramMessage, answerCallbackQuery, editMessageReplyMarkup } = require("./telegram");
 
 const app = express();
 app.use(express.json());
-
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 // Health check
 app.get("/", (req, res) => {
@@ -54,64 +49,6 @@ async function getTasksForPeriod(period) {
   const keyboard = buildInlineKeyboardForTasks(allTasks);
 
   return { text, keyboard };
-}
-
-// Telegram API helpers
-async function sendTelegramMessage(chatId, text, replyMarkup) {
-  const body = {
-    chat_id: chatId,
-    text: text,
-  };
-
-  if (replyMarkup) {
-    body.reply_markup = replyMarkup;
-  }
-
-  const response = await fetch(
-    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }
-  );
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.description || "Failed to send Telegram message");
-  }
-
-  return data;
-}
-
-async function answerCallbackQuery(callbackQueryId, text) {
-  await fetch(
-    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        callback_query_id: callbackQueryId,
-        text: text,
-      }),
-    }
-  );
-}
-
-async function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
-  await fetch(
-    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageReplyMarkup`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        message_id: messageId,
-        reply_markup: replyMarkup,
-      }),
-    }
-  );
 }
 
 // Telegram webhook
@@ -304,76 +241,4 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// Scheduled daily messages
-if (TELEGRAM_CHAT_ID) {
-  // 8 AM daily - Today's tasks (includes overdue)
-  cron.schedule(
-    "0 8 * * *",
-    async () => {
-      try {
-        const today = new Date().toISOString().split("T")[0];
-
-        const workTasks = await queryTasks({
-          endDate: today,
-          scope: "Work",
-        });
-        const personalTasks = await queryTasks({
-          endDate: today,
-          scope: "Personal",
-        });
-
-        const allTasks = [...workTasks, ...personalTasks];
-        const message = formatDailyReminder(workTasks, personalTasks, false);
-        const keyboard = buildInlineKeyboardForTasks(allTasks);
-        const replyMarkup = keyboard ? { inline_keyboard: keyboard } : undefined;
-
-        await sendTelegramMessage(TELEGRAM_CHAT_ID, `☀️ Good morning!\n\n${message}`, replyMarkup);
-        console.log("Sent 8 AM daily reminder");
-      } catch (error) {
-        console.error("Error sending 8 AM reminder:", error);
-      }
-    },
-    { timezone: "Asia/Jerusalem" }
-  );
-
-  // 6 PM daily - Incomplete tasks (includes overdue)
-  cron.schedule(
-    "0 18 * * *",
-    async () => {
-      try {
-        const today = new Date().toISOString().split("T")[0];
-
-        const workTasks = await queryTasks({
-          endDate: today,
-          scope: "Work",
-          includeCompleted: false,
-        });
-        const personalTasks = await queryTasks({
-          endDate: today,
-          scope: "Personal",
-          includeCompleted: false,
-        });
-
-        const allTasks = [...workTasks, ...personalTasks];
-        const message = formatDailyReminder(workTasks, personalTasks, true);
-        const keyboard = buildInlineKeyboardForTasks(allTasks);
-        const replyMarkup = keyboard ? { inline_keyboard: keyboard } : undefined;
-
-        await sendTelegramMessage(TELEGRAM_CHAT_ID, `🌆 Evening check-in:\n\n${message}`, replyMarkup);
-        console.log("Sent 6 PM daily reminder");
-      } catch (error) {
-        console.error("Error sending 6 PM reminder:", error);
-      }
-    },
-    { timezone: "Asia/Jerusalem" }
-  );
-
-  console.log("Scheduled daily reminders at 8 AM and 6 PM (Asia/Jerusalem)");
-} else {
-  console.log("TELEGRAM_CHAT_ID not set - daily reminders disabled");
-}
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Task Bot server running on port ${PORT}`);
-});
+module.exports = app;
