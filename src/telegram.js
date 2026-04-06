@@ -55,4 +55,26 @@ async function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
   );
 }
 
-module.exports = { sendTelegramMessage, answerCallbackQuery, editMessageReplyMarkup };
+async function setWebhook(url) {
+  const response = await fetch(
+    `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/setWebhook`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        secret_token: process.env.TELEGRAM_WEBHOOK_SECRET,
+      }),
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.description || "Failed to set webhook");
+  }
+
+  return data;
+}
+
+module.exports = { sendTelegramMessage, answerCallbackQuery, editMessageReplyMarkup, setWebhook };

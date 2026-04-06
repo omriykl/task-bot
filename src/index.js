@@ -53,6 +53,11 @@ async function getTasksForPeriod(period) {
 
 // Telegram webhook
 app.post("/webhook", async (req, res) => {
+  const secret = req.headers["x-telegram-bot-api-secret-token"];
+  if (secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
+    return res.sendStatus(403);
+  }
+
   try {
     // Handle callback queries (inline button presses)
     const { callback_query, message } = req.body;

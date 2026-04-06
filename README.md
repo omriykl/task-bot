@@ -113,7 +113,7 @@ After deploying, set the Telegram webhook to your Vercel URL:
 ```bash
 curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://<your-project>.vercel.app/webhook"}'
+  -d '{"url": "https://<your-project>.vercel.app/webhook", "secret_token": "'$TELEGRAM_WEBHOOK_SECRET'"}'
 ```
 
-Make sure environment variables (including `CRON_SECRET`) are configured in the Vercel dashboard.
+Make sure environment variables (including `CRON_SECRET` and `TELEGRAM_WEBHOOK_SECRET`) are configured in the Vercel dashboard.
